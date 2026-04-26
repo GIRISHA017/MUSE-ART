@@ -1,0 +1,134 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ShieldAlert, Gavel, Eye, CheckCircle, Clock } from 'lucide-react';
+
+export default function Ahome() {
+  const [artworks, setArtworks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchArtworks();
+  }, []);
+
+  const fetchArtworks = async () => {
+    try {
+      const token = localStorage.getItem('museart_token');
+      const res = await fetch('/api/admin/artworks', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setArtworks(data);
+      } else {
+        setArtworks([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setArtworks([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateStatus = async (artworkId, newStatus) => {
+    try {
+      const token = localStorage.getItem('museart_token');
+      const res = await fetch(`/api/admin/artworks/${artworkId}/status`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        setArtworks(artworks.map(a => a.id === artworkId ? { ...a, status: newStatus } : a));
+      }
+    } catch (err) {
+      alert('Status update failed');
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-10 pt-44 pb-40">
+      <div className="mb-20 flex items-start justify-between border-b border-white/10 pb-16">
+        <div className="space-y-6">
+           <div className="flex items-center gap-4">
+              <ShieldAlert className="w-6 h-6 text-red-500" />
+              <p className="text-[11px] uppercase font-black tracking-[1em] text-red-500">ADMINISTRATIVE PROTOCOL</p>
+           </div>
+           <h2 className="text-8xl font-serif italic text-white leading-none">Market Oversight</h2>
+           <p className="text-gray-500 uppercase tracking-[0.3em] text-[10px] font-black">Manage global bidding flow and asset availability.</p>
+        </div>
+        <div className="bg-red-500/10 border border-red-500/20 px-8 py-6 rounded-3xl text-right">
+           <p className="text-[10px] text-red-500 uppercase font-black tracking-widest mb-1">Authenticated Session</p>
+           <p className="text-3xl font-serif italic text-white">Administrator Access</p>
+        </div>
+      </div>
+
+      <div className="space-y-10">
+        {loading ? (
+           <div className="text-center py-20 animate-pulse text-gold uppercase tracking-widest text-xs">Accessing Encrypted Records...</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6">
+            <AnimatePresence>
+              {artworks.map(artwork => (
+                <motion.div 
+                  key={artwork.id}
+                  layout
+                  className="bg-[#0a0a0a] border border-white/10 p-10 rounded-[40px] flex flex-col md:flex-row items-center gap-12 group hover:border-gold/30 transition-all"
+                >
+                  <div className="w-40 h-40 rounded-3xl overflow-hidden shrink-0">
+                    <img src={artwork.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  </div>
+
+                  <div className="flex-grow space-y-4">
+                    <div className="flex items-center gap-4">
+                      <h3 className="text-3xl font-serif italic text-white">{artwork.title}</h3>
+                      <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${artwork.status === 'auction' ? 'bg-red-500/20 text-red-500' : artwork.status === 'sold' ? 'bg-green-500/20 text-green-500' : 'bg-gold/20 text-gold'}`}>
+                        {artwork.status}
+                      </span>
+                    </div>
+                    <p className="text-gray-500 uppercase tracking-widest text-[10px] font-black">By {artwork.artist} • Appraisal: {artwork.aiValuation}</p>
+                    <div className="flex items-center gap-6">
+                       <div className="space-y-1">
+                          <p className="text-[9px] text-gray-600 uppercase font-black tracking-widest">Current Market Price</p>
+                          <p className="text-xl font-serif italic text-white">${artwork.currentBid?.toLocaleString() || artwork.startingPrice?.toLocaleString()}</p>
+                       </div>
+                       <div className="h-8 w-px bg-white/10"></div>
+                       <div className="space-y-1">
+                          <p className="text-[9px] text-gray-600 uppercase font-black tracking-widest">Ownership State</p>
+                          <p className="text-xl font-serif italic text-gray-400">{artwork.isUserOwned ? 'Acquired' : 'Available'}</p>
+                       </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-4 shrink-0">
+                    <button 
+                      onClick={() => updateStatus(artwork.id, 'auction')}
+                      className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 transition-all ${artwork.status === 'auction' ? 'bg-gold text-black' : 'bg-white/5 text-gray-500 hover:bg-white/10'}`}
+                    >
+                      <Gavel className="w-4 h-4" /> Go Live
+                    </button>
+                    <button 
+                      onClick={() => updateStatus(artwork.id, 'exhibition')}
+                      className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 transition-all ${artwork.status === 'exhibition' ? 'bg-gold text-black' : 'bg-white/5 text-gray-500 hover:bg-white/10'}`}
+                    >
+                      <Eye className="w-4 h-4" /> Exhibit
+                    </button>
+                    <button 
+                      onClick={() => updateStatus(artwork.id, 'sold')}
+                      className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 transition-all ${artwork.status === 'sold' ? 'bg-gold text-black' : 'bg-white/5 text-gray-500 hover:bg-white/10'}`}
+                    >
+                      <CheckCircle className="w-4 h-4" /> Close
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
