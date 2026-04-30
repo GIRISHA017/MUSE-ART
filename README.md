@@ -70,7 +70,7 @@ It enables:
 
 ## 📂 Project Structure
 
-MuseArt/
+useArt/
 │
 ├── Backend/
 │ ├── controllers/
