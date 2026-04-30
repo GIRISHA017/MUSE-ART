@@ -22,11 +22,17 @@ import Usignup from './User/Usignup.jsx';
 import ArtistDashboard from './Artist/ArtistDashboard.jsx';
 import Ahome from './Admin/Ahome.jsx';
 import PublicProfile from './User/PublicProfile.jsx';
+import Profile from './User/Profile.jsx';
 
 function Landing({ onSelectRole }) {
   const handleAuthSelect = (mode) => {
     // Dispatch custom event to switch to auth mode
     window.dispatchEvent(new CustomEvent('switch-auth-mode', { detail: mode }));
+  };
+  const handleAdminLogin = () => {
+    window.dispatchEvent(
+      new CustomEvent('switch-auth-mode-with-role', { detail: { mode: 'login', role: 'admin' } })
+    );
   };
 
   return (
@@ -118,6 +124,12 @@ function Landing({ onSelectRole }) {
             >
               Create Account
             </button>
+            <button
+              onClick={handleAdminLogin}
+              className="px-8 py-4 bg-red-500/20 border border-red-500/40 rounded-2xl text-red-300 text-[10px] font-black uppercase tracking-[0.3em] hover:bg-red-500/30 transition-all"
+            >
+              Admin Sign In
+            </button>
           </div>
         </div>
       </motion.div>
@@ -158,7 +170,15 @@ export default function App() {
   const [isBidding, setIsBidding] = useState(false);
   const [viewState, setViewState] = useState(() => {
     const saved = localStorage.getItem('museart_user');
-    return saved ? 'home' : 'landing';
+    if (!saved) return 'landing';
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed?.role === 'admin') return 'admin-dashboard';
+      if (parsed?.role === 'artist') return 'artist-dashboard';
+      return 'home';
+    } catch {
+      return 'home';
+    }
   });
   const [activeFilterId, setActiveFilterId] = useState(null);
   const [allArtworks, setAllArtworks] = useState([]);
@@ -225,10 +245,18 @@ export default function App() {
     // Route based on user role
     if (userData.role === 'artist') {
       setViewState('artist-dashboard');
+    } else if (userData.role === 'admin') {
+      setViewState('admin-dashboard');
     } else {
       setViewState('home');
     }
     fetchArtworks();
+  };
+
+  const handleProfileUpdated = (profileData) => {
+    const mergedUser = { ...user, ...profileData, id: profileData?.id || user?.id };
+    setUser(mergedUser);
+    localStorage.setItem('museart_user', JSON.stringify(mergedUser));
   };
 
   const fetchArtworks = async () => {
@@ -404,10 +432,24 @@ export default function App() {
 
   const loadScript = (src) => {
     return new Promise((resolve) => {
+      // Check if script is already loaded
+      if (window.Razorpay) {
+        console.log('[Payment] Razorpay already loaded');
+        resolve(true);
+        return;
+      }
+
       const script = document.createElement("script");
       script.src = src;
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
+      script.onload = () => {
+        console.log('[Payment] Razorpay script loaded successfully');
+        resolve(true);
+      };
+      script.onerror = () => {
+        console.error('[Payment] Failed to load Razorpay script');
+        resolve(false);
+      };
+      script.timeout = 10000; // 10 second timeout
       document.body.appendChild(script);
     });
   };
@@ -421,15 +463,26 @@ export default function App() {
         return;
       }
 
+      console.log('[Payment] Loading Razorpay SDK...');
       const res = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
       if (!res) {
         addNotification("Razorpay SDK failed to load. Are you online?");
+        console.error('[Payment] Razorpay script failed to load');
+        return;
+      }
+      
+      // Verify Razorpay is available
+      if (!window.Razorpay) {
+        addNotification("Payment system not available. Please refresh and try again.");
+        console.error('[Payment] window.Razorpay is not defined');
         return;
       }
 
       const price = artwork.status === 'auction' || artwork.status === 'ended' ? artwork.currentBid : artwork.startingPrice;
+      console.log('[Payment] Order price:', price);
 
       // 1. Create order
+      console.log('[Payment] Creating order on backend...');
       const orderRes = await fetch('/api/gallery/create-order', {
         method: 'POST',
         headers: { 
@@ -438,11 +491,16 @@ export default function App() {
         },
         body: JSON.stringify({ amount: price })
       });
+      
       if (!orderRes.ok) {
+        const errorBody = await orderRes.text();
+        console.error('[Payment] Order creation failed:', orderRes.status, errorBody);
         addNotification("Failed to initialize payment. Try again.");
         return;
       }
+      
       const orderData = await orderRes.json();
+      console.log('[Payment] Order created:', orderData.id);
 
       const options = {
         key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_ShnLMpk5ncTyEX",
@@ -453,6 +511,7 @@ export default function App() {
         ...(orderData.id && !orderData.id.startsWith('order_mock_') && { order_id: orderData.id }),
         handler: async function (paymentResponse) {
           try {
+            console.log('[Payment] Payment response received');
             // 2. Verify payment
             const response = await fetch('/api/gallery/verify-payment', {
               method: 'POST',
@@ -482,6 +541,7 @@ export default function App() {
               throw new Error(errorText);
             }
 
+            console.log('[Payment] Payment verified successfully');
             await fetchArtworks();
             addNotification(`Acquisition successful: "${artwork.title}"`);
             if (selectedArtwork?.id === artwork.id) {
@@ -489,6 +549,7 @@ export default function App() {
               setViewState('home');
             }
           } catch (error) {
+            console.error('[Payment] Verification error:', error);
             addNotification(error.message || "Acquisition denied.");
           }
         },
@@ -501,10 +562,19 @@ export default function App() {
         }
       };
 
-      const paymentObject = new window.Razorpay(options);
-      paymentObject.open();
+      console.log('[Payment] Opening Razorpay payment dialog...');
+      try {
+        const paymentObject = new window.Razorpay(options);
+        paymentObject.open();
+        console.log('[Payment] Razorpay dialog opened successfully');
+      } catch (razorpayError) {
+        console.error('[Payment] Razorpay initialization error:', razorpayError);
+        addNotification("Unable to open payment dialog. Please check console for details.");
+        throw razorpayError;
+      }
 
     } catch (error) {
+       console.error('[Payment] Fatal error:', error);
        addNotification(error.message || "Acquisition denied.");
     }
   };
@@ -561,6 +631,14 @@ export default function App() {
               onReturnHome={() => setViewState('home')}
               artistName={activeFilterId}
               artworks={artistProfileArtworks}
+            />
+          )}
+
+          {viewState === 'profile' && (
+            <Profile
+              user={user}
+              onProfileUpdated={handleProfileUpdated}
+              onNotify={addNotification}
             />
           )}
 

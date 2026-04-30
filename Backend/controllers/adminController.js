@@ -4,6 +4,13 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import { Artwork } from "../models/Admin/Additem.js";
 
+const getArtworkQueryByParam = (paramId) => {
+  if (mongoose.Types.ObjectId.isValid(paramId)) {
+    return { $or: [{ id: String(paramId) }, { _id: paramId }] };
+  }
+  return { id: String(paramId) };
+};
+
 export const getArtworks = async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database not connected." });
@@ -55,13 +62,20 @@ export const postArtwork = async (req, res) => {
   }
   try {
     const artworkData = req.body;
+    const normalizedPrice = Number(
+      artworkData.startingPrice ?? artworkData.fixedPrice ?? artworkData.currentBid ?? 0
+    );
     const artwork = new Artwork({
       ...artworkData,
       id: Math.random().toString(36).substr(2, 9),
       creatorId: req.user.id,
       artist: req.user.name || "Unknown Artist",
-      currentBid: artworkData.startingPrice || 0,
+      startingPrice: normalizedPrice,
+      fixedPrice: normalizedPrice,
+      currentBid: normalizedPrice,
       status: artworkData.status || 'exhibition',
+      moderationStatus: 'pending',
+      promoted: false,
       auctionEndTime: artworkData.status === 'auction' ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null
     });
     await artwork.save();
@@ -76,10 +90,76 @@ export const updateArtworkStatus = async (req, res) => {
     return res.status(503).json({ error: "Database not connected." });
   }
   try {
-    const artwork = await Artwork.findOneAndUpdate({ id: req.params.id }, { status: req.body.status }, { new: true });
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required." });
+    }
+
+    const allowedStatuses = ["auction", "exhibition", "sold"];
+    if (!allowedStatuses.includes(req.body.status)) {
+      return res.status(400).json({ error: "Invalid artwork status." });
+    }
+
+    const updates = { status: req.body.status };
+    if (req.body.status === "sold") {
+      updates.moderationStatus = "closed";
+      updates.auctionEndTime = null;
+    } else if (req.body.status === "auction" || req.body.status === "exhibition") {
+      updates.moderationStatus = "approved";
+    }
+
+    const artwork = await Artwork.findOneAndUpdate(getArtworkQueryByParam(req.params.id), updates, { new: true });
+    if (!artwork) return res.status(404).json({ error: "Artwork not found." });
     res.json({ success: true, artwork });
   } catch (error) {
     res.status(500).json({ error: "Status update failed" });
+  }
+};
+
+export const manageArtworkListing = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database not connected." });
+  }
+
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required." });
+    }
+
+    const { action } = req.body;
+    const artwork = await Artwork.findOne(getArtworkQueryByParam(req.params.id));
+    if (!artwork) {
+      return res.status(404).json({ error: "Artwork not found." });
+    }
+
+    if (!["approve", "promote", "close"].includes(action)) {
+      return res.status(400).json({ error: "Invalid action." });
+    }
+
+    if (action === "approve") {
+      artwork.moderationStatus = "approved";
+      if (artwork.status === "sold") {
+        artwork.status = "exhibition";
+      }
+    }
+
+    if (action === "promote") {
+      artwork.promoted = true;
+      if (artwork.moderationStatus === "pending") {
+        artwork.moderationStatus = "approved";
+      }
+    }
+
+    if (action === "close") {
+      artwork.moderationStatus = "closed";
+      artwork.status = "sold";
+      artwork.auctionEndTime = null;
+    }
+
+    await artwork.save();
+    res.json({ success: true, artwork });
+  } catch (error) {
+    console.error("Manage listing error:", error);
+    res.status(500).json({ error: "Failed to manage listing." });
   }
 };
 
@@ -256,5 +336,101 @@ export const resellArtwork = async (req, res) => {
   } catch (error) {
     console.error("Resell Error:", error);
     res.status(500).json({ error: "Failed to resell artwork." });
+  }
+};
+
+export const updateArtistArtwork = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database not connected." });
+  }
+
+  try {
+    const artwork = await Artwork.findOne(getArtworkQueryByParam(req.params.id));
+    if (!artwork) {
+      return res.status(404).json({ error: "Artwork not found." });
+    }
+
+    if (String(artwork.creatorId) !== String(req.user.id)) {
+      return res.status(403).json({ error: "You can only edit your own uploaded artworks." });
+    }
+
+    const allowedFields = ["title", "image", "category", "description", "status", "startingPrice", "fixedPrice"];
+    const updates = {};
+    for (const key of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+        updates[key] = req.body[key];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields provided for update." });
+    }
+
+    if (typeof updates.title !== "undefined") {
+      updates.title = String(updates.title).trim();
+      if (!updates.title) {
+        return res.status(400).json({ error: "Title is required." });
+      }
+    }
+
+    if (typeof updates.description !== "undefined") {
+      updates.description = String(updates.description).trim();
+      if (!updates.description) {
+        return res.status(400).json({ error: "Description is required." });
+      }
+    }
+
+    if (typeof updates.status !== "undefined" && !["auction", "exhibition"].includes(updates.status)) {
+      return res.status(400).json({ error: "Invalid status. Use auction or exhibition." });
+    }
+
+    const incomingPrice =
+      typeof updates.startingPrice !== "undefined"
+        ? updates.startingPrice
+        : (typeof updates.fixedPrice !== "undefined" ? updates.fixedPrice : undefined);
+
+    if (typeof incomingPrice !== "undefined") {
+      const price = Number(incomingPrice);
+      if (!Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ error: "Starting price must be greater than zero." });
+      }
+      updates.startingPrice = price;
+      updates.fixedPrice = price;
+      if ((updates.status || artwork.status) === "auction") {
+        updates.currentBid = Math.max(Number(artwork.currentBid || 0), price);
+      } else {
+        updates.currentBid = price;
+      }
+    }
+
+    Object.assign(artwork, updates);
+    await artwork.save();
+    res.json({ success: true, artwork });
+  } catch (error) {
+    console.error("Update artist artwork error:", error);
+    res.status(500).json({ error: "Failed to update artwork." });
+  }
+};
+
+export const deleteArtistArtwork = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database not connected." });
+  }
+
+  try {
+    const artwork = await Artwork.findOne(getArtworkQueryByParam(req.params.id));
+    if (!artwork) {
+      return res.status(404).json({ error: "Artwork not found." });
+    }
+
+    if (String(artwork.creatorId) !== String(req.user.id)) {
+      return res.status(403).json({ error: "You can only delete your own uploaded artworks." });
+    }
+
+    await Artwork.deleteOne(getArtworkQueryByParam(req.params.id));
+    res.json({ success: true, message: "Artwork deleted successfully." });
+  } catch (error) {
+    console.error("Delete artist artwork error:", error);
+    res.status(500).json({ error: "Failed to delete artwork." });
   }
 };

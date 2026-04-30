@@ -105,7 +105,7 @@ export default function Usignup({ onAuthSuccess, defaultRole = 'collector' }) {
           </div>
 
           <div className="flex gap-4">
-            {['collector', 'artist'].map(role => (
+            {['collector', 'artist', 'admin'].map(role => (
               <button
                 key={role}
                 type="button"

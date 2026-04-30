@@ -30,7 +30,6 @@ process.stderr.write = function(chunk) {
 // Routes
 import userRoutes from "./routes/userRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
-import { register, login } from "./controllers/userController.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,8 +61,7 @@ async function startServer() {
     });
 
     // B. MOUNT API ROUTES (Fast, just definitions)
-    app.post("/api/auth/register", register);
-    app.post("/api/auth/login", login);
+    app.use("/api", userRoutes);
     app.use("/api/gallery", adminRoutes);
 
     // Catch-all for API 404

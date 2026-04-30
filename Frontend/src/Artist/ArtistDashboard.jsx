@@ -27,11 +27,16 @@ const DEFAULT_WING_PERFORMANCE = [
 ];
 
 const PROMOTION_THRESHOLD = 15000;
+const getEffectivePrice = (artwork) =>
+  Number(artwork?.purchasePrice ?? artwork?.startingPrice ?? artwork?.fixedPrice ?? artwork?.currentBid ?? 0);
 
 export default function ArtistDashboard({ currentUser }) {
   const [artistArtworks, setArtistArtworks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [editingArtwork, setEditingArtwork] = useState(null);
   const [valuationOpen, setValuationOpen] = useState(false);
   const [valuationText, setValuationText] = useState('');
   const [formData, setFormData] = useState({
@@ -60,7 +65,11 @@ export default function ArtistDashboard({ currentUser }) {
       const filtered = Array.isArray(data)
         ? data.filter((art) => {
             const owner = art.creatorId || art.artistID || art.artistId || art.ownerId || art.artist;
-            return String(owner) === String(currentId);
+            return (
+              String(owner) === String(currentId) ||
+              String(art.creatorId) === String(currentId) ||
+              String(art.artist || '').toLowerCase() === String(currentUser?.name || '').toLowerCase()
+            );
           })
         : [];
       setArtistArtworks(filtered);
@@ -190,8 +199,8 @@ export default function ArtistDashboard({ currentUser }) {
           image: formData.image,
           category: formData.category === 'Master' ? 'Classical' : formData.category,
           status: formData.priceMode === 'auction' ? 'auction' : 'exhibition',
-          startingPrice: formData.priceMode === 'auction' ? Number(formData.fixedPrice || 0) : null,
-          fixedPrice: formData.priceMode === 'fixed' ? Number(formData.fixedPrice || 0) : null,
+          startingPrice: Number(formData.fixedPrice || 0),
+          fixedPrice: Number(formData.fixedPrice || 0),
           description: formData.story,
           artistID: currentUser?._id || currentUser?.id
         })
@@ -214,6 +223,75 @@ export default function ArtistDashboard({ currentUser }) {
       alert(error.message || 'Failed to publish artwork. Please try a smaller image.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const openEditArtwork = (artwork) => {
+    setEditingArtwork({
+      id: artwork.id || artwork._id,
+      title: artwork.title || '',
+      image: artwork.image || '',
+      category: artwork.category === 'Classical' ? 'Master' : (artwork.category || 'Emerging'),
+      status: artwork.status === 'auction' ? 'auction' : 'exhibition',
+      startingPrice: artwork.startingPrice || artwork.fixedPrice || artwork.currentBid || '',
+      description: artwork.description || ''
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingArtwork) return;
+    setIsSavingEdit(true);
+    try {
+      const token = localStorage.getItem('museart_token');
+      const response = await fetch(`/api/gallery/artist/artwork/${editingArtwork.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          title: editingArtwork.title,
+          image: editingArtwork.image,
+          category: editingArtwork.category === 'Master' ? 'Classical' : editingArtwork.category,
+          status: editingArtwork.status,
+          startingPrice: Number(editingArtwork.startingPrice || 0),
+          fixedPrice: Number(editingArtwork.startingPrice || 0),
+          description: editingArtwork.description
+        })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to update artwork.');
+      }
+      alert('Artwork updated successfully.');
+      setEditingArtwork(null);
+      await loadArtistArt();
+    } catch (error) {
+      alert(error.message || 'Failed to update artwork.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteArtwork = async (artworkId) => {
+    if (!window.confirm('Delete this artwork permanently?')) return;
+    setDeletingId(artworkId);
+    try {
+      const token = localStorage.getItem('museart_token');
+      const response = await fetch(`/api/gallery/artist/artwork/${artworkId}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to delete artwork.');
+      }
+      alert('Artwork deleted successfully.');
+      await loadArtistArt();
+    } catch (error) {
+      alert(error.message || 'Failed to delete artwork.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -431,6 +509,7 @@ export default function ArtistDashboard({ currentUser }) {
                   <th className="py-3 px-2">Status</th>
                   <th className="py-3 px-2">Starting Price</th>
                   <th className="py-3 px-2">Final/Sold Price</th>
+                  <th className="py-3 px-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -446,10 +525,31 @@ export default function ArtistDashboard({ currentUser }) {
                        </span>
                     </td>
                     <td className="py-4 px-2">
-                       {row.startingPrice ? `₹${row.startingPrice.toLocaleString()}` : '-'}
+                       {getEffectivePrice(row) > 0 ? `₹${getEffectivePrice(row).toLocaleString()}` : '-'}
                     </td>
                     <td className="py-4 px-2">
-                       {row.status === 'sold' ? `₹${(row.purchasePrice || row.fixedPrice || row.startingPrice || 0).toLocaleString()}` : '-'}
+                       {row.status === 'sold' ? `₹${getEffectivePrice(row).toLocaleString()}` : '-'}
+                    </td>
+                    <td className="py-4 px-2">
+                      {row.id === 'demo' ? (
+                        <span className="text-gray-500 text-xs">-</span>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openEditArtwork(row)}
+                            className="px-3 py-1.5 rounded-lg bg-white/10 text-xs uppercase tracking-widest hover:bg-white/20"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteArtwork(row.id || row._id)}
+                            disabled={deletingId === (row.id || row._id)}
+                            className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-300 text-xs uppercase tracking-widest hover:bg-red-500/30 disabled:opacity-60"
+                          >
+                            {deletingId === (row.id || row._id) ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -459,8 +559,79 @@ export default function ArtistDashboard({ currentUser }) {
         )}
       </section>
 
+      {editingArtwork && (
+        <div className="fixed inset-0 z-120 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="max-w-2xl w-full rounded-2xl border border-white/20 bg-[#0e0e0e] p-7">
+            <h4 className="text-xl font-serif italic mb-5">Edit Artwork</h4>
+            <div className="space-y-4">
+              <input
+                value={editingArtwork.title}
+                onChange={(e) => setEditingArtwork((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="Artwork title"
+                className="w-full bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60"
+              />
+              <input
+                value={editingArtwork.image}
+                onChange={(e) => setEditingArtwork((prev) => ({ ...prev, image: e.target.value }))}
+                placeholder="Image URL or base64"
+                className="w-full bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60"
+              />
+              <div className="grid md:grid-cols-3 gap-3">
+                <select
+                  value={editingArtwork.category}
+                  onChange={(e) => setEditingArtwork((prev) => ({ ...prev, category: e.target.value }))}
+                  className="bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60"
+                >
+                  <option value="Master">Master Wing</option>
+                  <option value="Modern">Modern Wing</option>
+                  <option value="Emerging">Emerging Studio</option>
+                </select>
+                <select
+                  value={editingArtwork.status}
+                  onChange={(e) => setEditingArtwork((prev) => ({ ...prev, status: e.target.value }))}
+                  className="bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60"
+                >
+                  <option value="auction">Auction</option>
+                  <option value="exhibition">Exhibition</option>
+                </select>
+                <input
+                  type="number"
+                  value={editingArtwork.startingPrice}
+                  onChange={(e) => setEditingArtwork((prev) => ({ ...prev, startingPrice: e.target.value }))}
+                  placeholder="Starting price"
+                  className="bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60"
+                />
+              </div>
+              <textarea
+                rows={5}
+                value={editingArtwork.description}
+                onChange={(e) => setEditingArtwork((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Artwork description"
+                className="w-full bg-black/20 border border-white/20 rounded-xl px-4 py-3 text-sm outline-none focus:border-gold/60 resize-none"
+              />
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="rounded-xl bg-gold text-black px-5 py-2 text-xs uppercase tracking-widest font-black disabled:opacity-60"
+              >
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                onClick={() => setEditingArtwork(null)}
+                disabled={isSavingEdit}
+                className="rounded-xl bg-white/10 text-white px-5 py-2 text-xs uppercase tracking-widest font-black"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {valuationOpen && (
-        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-120 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="max-w-lg w-full rounded-2xl border border-gold/40 bg-[#0e0e0e] p-7">
             <h4 className="text-xl font-serif italic mb-3">MuseAI Valuation</h4>
             <p className="text-sm text-gray-200">{valuationText}</p>

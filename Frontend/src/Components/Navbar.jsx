@@ -49,6 +49,14 @@ export default function Navbar({ onSearch, setViewState, viewState, user, onLogo
           >
             Vault
           </button>
+          <button
+            onClick={() => setViewState('profile')}
+            className={`px-3 py-2 rounded-lg text-xs uppercase tracking-widest ${
+              viewState === 'profile' ? 'bg-gold text-black' : 'text-gray-300 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            Profile
+          </button>
           {artistMode && (
             <button
               onClick={() => setViewState('artist-dashboard')}

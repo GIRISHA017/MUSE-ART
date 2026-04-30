@@ -26,6 +26,8 @@ const artworkSchema = new mongoose.Schema({
   deliveryStatus: { type: String, enum: ['processing', 'shipped', 'delivered'], default: 'processing' },
   timerSeconds: Number,
   status: { type: String, enum: ['auction', 'exhibition', 'sold'], default: 'exhibition' },
+  moderationStatus: { type: String, enum: ['pending', 'approved', 'closed'], default: 'pending' },
+  promoted: { type: Boolean, default: false },
   purchasePrice: Number,
   currentMarketValue: Number,
   isUserOwned: { type: Boolean, default: false },

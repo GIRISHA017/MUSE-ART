@@ -12,7 +12,7 @@ export default function ArtworkCard({
   const price =
     artwork?.status === 'auction'
       ? artwork?.currentBid
-      : artwork?.purchasePrice || artwork?.startingPrice || 0;
+      : artwork?.purchasePrice || artwork?.startingPrice || artwork?.fixedPrice || artwork?.currentBid || 0;
 
   const isAuctionEnded = artwork?.status === 'auction' && artwork?.auctionEndTime && new Date(artwork?.auctionEndTime).getTime() < Date.now();
 
