@@ -135,33 +135,55 @@ git clone https://github.com/your-username/museart.git
 cd museart
 npm install
 npm run dev
-Database Design
-Entities
-User
-Artwork
-Bid (Embedded)
-Relationships
-User creates Artwork
-User owns Artwork
-Users place bids on Artwork
-🧠 Architecture
-MVC Architecture
-REST API Design
-Single Page Application (SPA)
-Decoupled frontend & backend
-📈 Future Improvements
-AI-based recommendations
-Real-time bidding with WebSockets
-Mobile application
-NFT integration
-🏁 Conclusion
+```
+## 📊 Database Design
+
+### Entities
+- User  
+- Artwork  
+- Bid (Embedded)  
+
+### Relationships
+- User creates Artwork  
+- User owns Artwork  
+- Users place bids on Artwork  
+
+---
+
+## 🧠 Architecture
+
+- MVC Architecture  
+- REST API Design  
+- Single Page Application (SPA)  
+- Decoupled frontend & backend  
+
+---
+
+## 📈 Future Improvements
+
+- AI-based recommendations  
+- Real-time bidding with WebSockets  
+- Mobile application  
+- NFT integration  
+
+---
+
+## 🏁 Conclusion
 
 MuseArt is a complete full-stack platform combining modern UI, secure backend, and real-time auction functionality. It creates a seamless digital marketplace for artists and collectors.
 
-👥 Contributors
-Varshini Akkisetti
-Tejaswi Chenna
-Senisetty Harshini
-Poojitha
-Girisha Varshini
+---
 
+## 👥 Contributors
+
+- Varshini Akkisetti  
+- Tejaswi Chenna  
+- Senisetty Harshini  
+- Poojitha  
+- Girisha Varshini  
+
+---
+
+## 📜 License
+
+This project is for academic purposes.
